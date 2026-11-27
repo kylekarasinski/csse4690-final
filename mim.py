@@ -3,9 +3,10 @@ forwards survivors to the server, logs every decision. Control commands arrive o
 
 Run:  python mim.py --server 127.0.0.1:9001
 """
-import argparse, asyncio, json, random, time
+import argparse, asyncio, json, time
+import chaos
 
-settings = {"loss": 0.0, "delay_ms": 0.0, "jitter_ms": 0.0}
+settings = dict(chaos.DEFAULTS)    # the chaos engine defines which settings exist
 stats = {"received": 0, "forwarded": 0, "dropped": 0}
 
 
@@ -21,13 +22,11 @@ class Relay(asyncio.DatagramProtocol):
         seq = json.loads(data).get("seq")          # only for logging; data is forwarded untouched
         entry = {"seq": seq, "t": time.time()}
 
-        # --- chaos engine (this is the part Kyle grows) ---
-        if random.random() < settings["loss"]:
+        delay = chaos.decide(settings)             # chaos engine decides the fate
+        if delay is None:
             stats["dropped"] += 1
             entry["action"] = "drop"
         else:
-            delay = settings["delay_ms"] + random.uniform(-settings["jitter_ms"], settings["jitter_ms"])
-            delay = max(0.0, delay) / 1000
             # call_later = "send this later" without blocking new arrivals. Reordering falls out naturally.
             asyncio.get_running_loop().call_later(delay, self.forward, data)
             entry.update(action="forward", delay_ms=round(delay * 1000, 3))
