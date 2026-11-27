@@ -108,14 +108,7 @@ ip -n "${ROUTER_NS}" address add 10.0.1.1/24 dev "${ROUTER_LEFT_VETH}"
 ip -n "${ROUTER_NS}" address add 10.0.2.1/24 dev "${ROUTER_RIGHT_VETH}"
 ip -n "${SERVER_NS}" address add 10.0.2.2/24 dev "${SERVER_VETH}"
 
-for item in \
-  "${CLIENT_NS} lo" \
-  "${CLIENT_NS} ${CLIENT_VETH}" \
-  "${ROUTER_NS} lo" \
-  "${ROUTER_NS} ${ROUTER_LEFT_VETH}" \
-  "${ROUTER_NS} ${ROUTER_RIGHT_VETH}" \
-  "${SERVER_NS} lo" \
-  "${SERVER_NS} ${SERVER_VETH}"; do
+for item in "${CLIENT_NS} lo ${CLIENT_NS} ${CLIENT_VETH} ${ROUTER_NS} lo ${ROUTER_NS} ${ROUTER_LEFT_VETH} ${ROUTER_NS} ${ROUTER_RIGHT_VETH} ${SERVER_NS} lo ${SERVER_NS} ${SERVER_VETH}"; do
   read -r namespace interface <<<"${item}"
   ip -n "${namespace}" link set "${interface}" up
 done
@@ -123,14 +116,9 @@ done
 ip -n "${CLIENT_NS}" route add default via 10.0.1.1
 ip -n "${SERVER_NS}" route add default via 10.0.2.1
 ip netns exec "${ROUTER_NS}" sysctl -q -w net.ipv4.ip_forward=1
-ip netns exec "${ROUTER_NS}" iptables -I FORWARD \
-  -s 10.0.1.2 -d 10.0.2.2 \
-  -j NFQUEUE --queue-num 0 --queue-bypass
+ip netns exec "${ROUTER_NS}" iptables -I FORWARD -s 10.0.1.2 -d 10.0.2.2 -j NFQUEUE --queue-num 0 --queue-bypass
 
-ip netns exec "${ROUTER_NS}" \
-  "${PYTHON}" "${ROUTER_DIR}/chaos.py" \
-  --queue-num 0 --queue-maxlen 128 --log "${QUEUE_LOG}" \
-  >"${ROUTER_OUTPUT}" 2>&1 &
+ip netns exec "${ROUTER_NS}" "${PYTHON}" "${ROUTER_DIR}/chaos.py" --queue-num 0 --queue-maxlen 128 --log "${QUEUE_LOG}" >"${ROUTER_OUTPUT}" 2>&1 &
 ROUTER_PID=$!
 
 for ((attempt = 0; attempt < 50; attempt++)); do
@@ -158,6 +146,25 @@ if ! ip netns exec "${CLIENT_NS}" ping -n -c 3 -W 2 10.0.2.2; then
   exit 1
 fi
 
+ip netns exec "${ROUTER_NS}" "${PYTHON}" - <<'PY'
+import json
+import socket
+
+with socket.create_connection(("127.0.0.1", 9003), timeout=2) as connection:
+    connection.sendall(b'{"cmd":"loss","value":100}\n')
+    with connection.makefile("rb") as stream:
+        reply = json.loads(stream.readline())
+if not reply.get("ok") or reply.get("mode") != "loss":
+    raise SystemExit(f"Router did not acknowledge the loss command: {reply}")
+print("Router acknowledged 100% loss.")
+PY
+
+echo "Checking that the live loss setting drops the next ping..."
+if ip netns exec "${CLIENT_NS}" ping -n -c 1 -W 1 10.0.2.2; then
+  echo "Expected the ping to be dropped at 100% loss." >&2
+  exit 1
+fi
+
 kill -TERM "${ROUTER_PID}"
 wait "${ROUTER_PID}"
 ROUTER_PID=""
@@ -172,12 +179,17 @@ records = [
     for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
     if line
 ]
-if len(records) != 3:
-    raise SystemExit(f"Expected 3 NFQUEUE packets, got {len(records)}")
-if any(record.get("action") != "pass" for record in records):
-    raise SystemExit("At least one packet was not passed")
-if [record.get("seen") for record in records] != [1, 2, 3]:
-    raise SystemExit("Packet counter did not advance from 1 through 3")
+if len(records) != 4:
+    raise SystemExit(f"Expected 4 NFQUEUE packets, got {len(records)}")
+if [record.get("action") for record in records] != [
+    "passed",
+    "passed",
+    "passed",
+    "dropped",
+]:
+    raise SystemExit("Router actions did not match pass-then-drop test")
+if [record.get("seen") for record in records] != [1, 2, 3, 4]:
+    raise SystemExit("Packet counter did not advance from 1 through 4")
 
-print("PASS: all 3 pings crossed NFQUEUE and were counted as passed.")
+print("PASS: 3 pings passed, then 100% loss dropped the fourth; counter matched.")
 PY

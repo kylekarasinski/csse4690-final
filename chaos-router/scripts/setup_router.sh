@@ -12,10 +12,8 @@ fi
 
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
-iptables -C FORWARD -s "${SOURCE}" -d "${DESTINATION}" \
-  -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass >/dev/null 2>&1 ||
-iptables -I FORWARD 1 -s "${SOURCE}" -d "${DESTINATION}" \
-  -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass
+iptables -C FORWARD -s "${SOURCE}" -d "${DESTINATION}" -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass >/dev/null 2>&1 ||
+iptables -I FORWARD 1 -s "${SOURCE}" -d "${DESTINATION}" -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass
 
 echo "Router forwarding enabled."
 echo "NFQUEUE rule: ${SOURCE} -> ${DESTINATION}, queue ${QUEUE_NUM}."

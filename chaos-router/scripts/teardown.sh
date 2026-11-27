@@ -10,10 +10,8 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-while iptables -C FORWARD -s "${SOURCE}" -d "${DESTINATION}" \
-  -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass >/dev/null 2>&1; do
-  iptables -D FORWARD -s "${SOURCE}" -d "${DESTINATION}" \
-    -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass
+while iptables -C FORWARD -s "${SOURCE}" -d "${DESTINATION}" -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass >/dev/null 2>&1; do
+  iptables -D FORWARD -s "${SOURCE}" -d "${DESTINATION}" -j NFQUEUE --queue-num "${QUEUE_NUM}" --queue-bypass
 done
 
 echo "Chaos Router NFQUEUE rule removed."
