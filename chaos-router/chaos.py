@@ -85,15 +85,13 @@ def run(queue_num: int = 0, queue_maxlen: int = 4096, log_path: str | None = Non
         from netfilterqueue import NetfilterQueue
     except ImportError as exc:
         raise RuntimeError(
-            "netfilterqueue is not installed. Install python3-netfilterqueue "
-            "(and libnfnetlink/libnetfilter-queue dev packages) on the router."
+            "NetfilterQueue is not installed in this Python environment. "
+            "Install the Python binding and libnetfilter_queue on the router."
         ) from exc
 
     counter = PacketCounter(log_path)
     queue = NetfilterQueue()
-    queue.bind(queue_num, make_callback(counter))
-    queue.set_queue_maxlen(queue_maxlen)
-    queue.set_queue_timeout(100)
+    queue.bind(queue_num, make_callback(counter), max_len=queue_maxlen)
     stopping = threading.Event()
 
     def stop(_signum: int, _frame: Any) -> None:
@@ -101,7 +99,6 @@ def run(queue_num: int = 0, queue_maxlen: int = 4096, log_path: str | None = Non
             return
         stopping.set()
         print("\nStopping NFQUEUE passthrough...", flush=True)
-        queue.unbind()
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
@@ -117,8 +114,11 @@ def run(queue_num: int = 0, queue_maxlen: int = 4096, log_path: str | None = Non
     )
 
     try:
-        queue.run(block=True)
+        while not stopping.is_set():
+            queue.run(block=False)
+            stopping.wait(0.01)
     finally:
+        queue.unbind()
         print_stats(counter)
 
 

@@ -1,9 +1,15 @@
+import contextlib
+import io
 import json
+import signal
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from chaos import PacketCounter, make_callback
+from chaos import PacketCounter, make_callback, run
 
 
 class FakePacket:
@@ -15,6 +21,26 @@ class FakePacket:
 
     def __bytes__(self) -> bytes:
         return b"test"
+
+
+class FakeQueue:
+    def __init__(self, signal_handlers) -> None:
+        self.signal_handlers = signal_handlers
+        self.bind_args = None
+        self.blocking = False
+        self.run_calls = 0
+        self.unbound = False
+
+    def bind(self, queue_num, callback, max_len=1024) -> None:
+        self.bind_args = (queue_num, callback, max_len)
+
+    def run(self, block=False) -> None:
+        self.blocking = block
+        self.run_calls += 1
+        self.signal_handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+    def unbind(self) -> None:
+        self.unbound = True
 
 
 class ChaosPassthroughTests(unittest.TestCase):
@@ -41,6 +67,29 @@ class ChaosPassthroughTests(unittest.TestCase):
             self.assertEqual(record["action"], "pass")
             self.assertEqual(record["seen"], 1)
             self.assertEqual(record["length"], 4)
+
+    def test_run_uses_bind_max_len_parameter(self) -> None:
+        signal_handlers = {}
+        queue = FakeQueue(signal_handlers)
+        module = SimpleNamespace(NetfilterQueue=lambda: queue)
+
+        with (
+            patch.dict(sys.modules, {"netfilterqueue": module}),
+            patch(
+                "chaos.signal.signal",
+                side_effect=lambda signum, handler: signal_handlers.__setitem__(
+                    signum, handler
+                ),
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            run(queue_num=3, queue_maxlen=64, log_path=None)
+
+        self.assertEqual(queue.bind_args[0], 3)
+        self.assertEqual(queue.bind_args[2], 64)
+        self.assertFalse(queue.blocking)
+        self.assertEqual(queue.run_calls, 1)
+        self.assertTrue(queue.unbound)
 
 
 if __name__ == "__main__":
