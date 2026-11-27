@@ -7,11 +7,12 @@ Contract with mim.py:
 """
 import random
 
-DEFAULTS = {"loss": 0.0, "delay_ms": 0.0, "jitter_ms": 0.0}
+DEFAULTS = {"loss": 0.0, "delay_ms": 0.0, "jitter_ms": 0.0}   # loss is a percent, 0 to 100
 
 
 def decide(settings):
-    if random.random() < settings["loss"]:
+    if random.random() < settings["loss"] / 100:
         return None
-    delay_ms = settings["delay_ms"] + random.uniform(-settings["jitter_ms"], settings["jitter_ms"])
-    return max(0.0, delay_ms) / 1000
+    # Jitter adds 0 to jitter_ms on top of the base delay (plan section 6).
+    delay_ms = settings["delay_ms"] + random.uniform(0, settings["jitter_ms"])
+    return delay_ms / 1000

@@ -5,6 +5,7 @@ Run:  python server.py
 import argparse, json, socket, threading, time
 
 arrivals = []            # list of (seq, sent_time, arrival_time) in arrival order
+bad = [0]                # datagrams that were not a valid message (list so the thread can change it)
 lock = threading.Lock()
 
 
@@ -14,15 +15,22 @@ def udp_loop(port):
     while True:
         data, _ = s.recvfrom(65535)
         now = time.time()
-        msg = json.loads(data)
+        try:
+            msg = json.loads(data)
+            entry = (int(msg["seq"]), float(msg["sent"]), now)
+        except (ValueError, KeyError, TypeError):
+            with lock:
+                bad[0] += 1        # count it and keep running instead of crashing the thread
+            continue
         with lock:
-            arrivals.append((msg["seq"], msg["sent"], now))
+            arrivals.append(entry)
 
 
 def build_report(total_sent):
     with lock:
         got = list(arrivals)
         arrivals.clear()     # reset for the next run
+        n_bad, bad[0] = bad[0], 0
     seqs = [a[0] for a in got]
     delays = [(arr - sent) * 1000 for _, sent, arr in got]
     # Out of order: arrived after a higher sequence number had already arrived.
@@ -37,6 +45,7 @@ def build_report(total_sent):
     return {
         "sent": total_sent,
         "received": len(got),
+        "bad": n_bad,
         "missing": missing,
         "loss_pct": round(100 * len(missing) / total_sent, 2) if total_sent else 0,
         "out_of_order": out_of_order,

@@ -1,7 +1,7 @@
 """Control interface (text menu). Changes MIM settings live.
 
 Run:  python control.py
-Commands:  loss 0.2 | delay 100 | jitter 20 | stats | ping | quit
+Commands:  loss 20 (percent) | delay 100 | jitter 20 | stats | ping | quit
 """
 import argparse, json, socket
 

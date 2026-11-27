@@ -19,7 +19,10 @@ class Relay(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, client_addr):
         stats["received"] += 1
-        seq = json.loads(data).get("seq")          # only for logging; data is forwarded untouched
+        try:
+            seq = json.loads(data).get("seq")      # only for logging; data is forwarded untouched
+        except (ValueError, AttributeError):
+            seq = None                             # not valid JSON: still forward it, log seq as null
         entry = {"seq": seq, "t": time.time()}
 
         delay = chaos.decide(settings)             # chaos engine decides the fate
